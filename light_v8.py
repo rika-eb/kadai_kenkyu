@@ -24,15 +24,19 @@ PPFD_DROP_RATIO = 0.8
 DARK_RATIO = 0.9
 
 TURN_POWER = 3000
-TURN_STEP_TIME = 0.28  # 45度回転に必要な時間
+TURN_STEP_TIME = 0.28
 FORWARD_POWER = 3000
 FORWARD_TIME = 0.4
 MIN_MOVE_DISTANCE = 20
+
+# ===== 30秒ごとの表示用 =====
+PRINT_INTERVAL = 30  # 秒
 
 # ===== 状態 =====
 accumulated_umol = 0
 start_time = time.time()
 last_integral_time = time.time()
+last_print_time = time.time()  # 追加
 best_global_avg = 0
 
 
@@ -49,7 +53,6 @@ def rotate_left():
     time.sleep(0.2)
 
 
-
 def rotate_right():
     motor.setMotorModel(TURN_POWER, -TURN_POWER)
     time.sleep(TURN_STEP_TIME)
@@ -57,9 +60,8 @@ def rotate_right():
     time.sleep(0.2)
 
 
-
 def rotate_180():
-    for _ in range(4):  # 45度×4 = 180度
+    for _ in range(4):
         rotate_right()
     stop()
     time.sleep(0.2)
@@ -94,33 +96,45 @@ def integrate_light():
     accumulated_umol += get_ppfd() * dt
 
 
+# ===== 30秒ごとの表示 =====
+def print_status_if_needed():
+    """30秒ごとに現在の照度と積算値を表示"""
+    global last_print_time
+    
+    now = time.time()
+    if now - last_print_time >= PRINT_INTERVAL:
+        current_lux = get_lux()
+        current_ppfd = get_ppfd()
+        print(f"[Status] Lux={current_lux:.2f}, PPFD={current_ppfd:.2f}, Accumulated={accumulated_umol / 1_000_000:.3f} mol/m²")
+        last_print_time = now
+
+
 # ===== 探索 =====
 def explore(target_ppfd):
     global best_global_avg
 
-    # -90, -45, 0, 45, 90度の5方向をスキャン
-    ANGLE_STEPS = [-2, -1, 0, 1, 2]  # 45度単位での回転数
+    ANGLE_STEPS = [-2, -1, 0, 1, 2]
     
-    previous_max_ppfd = 0  # 前回の移動での最大PPFD
-    no_improvement_count = 0  # 改善がない回数
-    MAX_NO_IMPROVEMENT = 3  # これ以上改善がなければ終了
+    previous_max_ppfd = 0
+    no_improvement_count = 0
+    MAX_NO_IMPROVEMENT = 3
     
-    # 最も明るかった地点を記録
     brightest_ppfd = 0
-    move_history = []  # 最も明るい地点からの移動履歴 [{'type': 'rotate_left'/'rotate_right'/'forward', 'count': n}, ...]
+    move_history = []
     
     while True:
         integrate_light()
+        print_status_if_needed()  # 追加
         
         measurements = []
         
-        # ① 左端（-90度）へ移動
         for _ in range(2):
             rotate_left()
         
-        # ② -90度から90度まで測定（5方向）
         for i, angle_step in enumerate(ANGLE_STEPS):
             integrate_light()
+            print_status_if_needed()  # 追加
+            
             lux = get_lux()
             ppfd = lux * LUX_TO_PPFD
             distance = ultra.get_distance()
@@ -136,15 +150,12 @@ def explore(target_ppfd):
             
             print(f"Angle {angle_step*45}°: Lux={lux:.2f}, PPFD={ppfd:.2f}, Dist={distance:.1f}cm")
             
-            # 最後(i=4)以外は右回転して次の角度へ
             if i < len(ANGLE_STEPS) - 1:
                 rotate_right()
         
-        # ③ 中央（0度）へ戻す
         for _ in range(2):
             rotate_left()
         
-        # ④ 平均明るさ計算と暗化判定
         avg_lux = sum(m['lux'] for m in measurements) / len(measurements)
         
         if best_global_avg == 0:
@@ -154,7 +165,7 @@ def explore(target_ppfd):
             print(f"Darker detected (current:{avg_lux:.2f} < best:{best_global_avg:.2f}*{DARK_RATIO}) → U-turn")
             rotate_180()
             if move_forward():
-                best_global_avg = 0  # リセット
+                best_global_avg = 0
                 brightest_ppfd = 0
                 move_history = []
             return get_ppfd()
@@ -162,23 +173,18 @@ def explore(target_ppfd):
         if avg_lux > best_global_avg:
             best_global_avg = avg_lux
         
-        # ⑤ 最適方向を選択
         movable = [m for m in measurements if m['can_move']]
         
         if not movable:
             print("No movable direction → stay here")
             return get_ppfd()
         
-        # 目標PPFDに最も近い方向を選択
         best = min(movable, key=lambda m: abs(m['ppfd'] - target_ppfd))
         
-        # 現在の最大PPFDを記録
         current_max_ppfd = max(m['ppfd'] for m in measurements)
-        current_ppfd = get_ppfd()
         
         print(f"Best direction: {best['angle_step']*45}° (PPFD={best['ppfd']:.2f})")
         
-        # ⑥ ベスト方向へ回転
         rotation_count = 0
         if best['angle_step'] > 0:
             for _ in range(best['angle_step']):
@@ -193,7 +199,6 @@ def explore(target_ppfd):
         else:
             rotation_type = None
         
-        # ⑦ 前進
         moved = move_forward()
         
         if not moved:
@@ -201,62 +206,55 @@ def explore(target_ppfd):
             return get_ppfd()
         
         integrate_light()
+        print_status_if_needed()  # 追加
+        
         reached_ppfd = get_ppfd()
         
         print(f"Reached PPFD: {reached_ppfd:.2f}, Target: {target_ppfd:.2f}")
         
-        # 最も明るい地点を更新
         if reached_ppfd > brightest_ppfd:
             brightest_ppfd = reached_ppfd
-            move_history = []  # 新しい最良地点なので履歴をクリア
+            move_history = []
             print(f"New brightest point: {brightest_ppfd:.2f}")
         else:
-            # 最良地点からの移動を記録
             if rotation_type:
                 move_history.append({'type': rotation_type, 'count': rotation_count})
             move_history.append({'type': 'forward', 'count': 1})
         
-        # ⑧ 終了判定
-        # 目標達成
         if reached_ppfd >= target_ppfd * (1 - BRIGHTNESS_TOLERANCE):
             print("Target brightness reached")
             break
         
-        # 改善判定
-        if current_max_ppfd <= previous_max_ppfd * 1.05:  # 5%以上の改善がない
+        if current_max_ppfd <= previous_max_ppfd * 1.05:
             no_improvement_count += 1
             print(f"No significant improvement ({no_improvement_count}/{MAX_NO_IMPROVEMENT})")
             
             if no_improvement_count >= MAX_NO_IMPROVEMENT:
                 print("Max brightness reached in room (no improvement)")
                 
-                # 最も明るかった地点に戻る
                 if len(move_history) > 0:
                     print(f"Returning to brightest point (history: {len(move_history)} moves)")
                     
-                    # 180度回転
                     rotate_180()
                     integrate_light()
+                    print_status_if_needed()  # 追加
                     
-                    # 移動履歴を逆順に実行
                     for move in reversed(move_history):
                         if move['type'] == 'forward':
-                            # 前進を逆にする = 前進（180度回転済みなので前進で戻る）
                             for _ in range(move['count']):
                                 move_forward()
                                 integrate_light()
+                                print_status_if_needed()  # 追加
                         elif move['type'] == 'rotate_right':
-                            # 右回転を逆にする = 左回転
                             for _ in range(move['count']):
                                 rotate_left()
                         elif move['type'] == 'rotate_left':
-                            # 左回転を逆にする = 右回転
                             for _ in range(move['count']):
                                 rotate_right()
                     
-                    # 再び180度回転して元の向きに戻す
                     rotate_180()
                     integrate_light()
+                    print_status_if_needed()  # 追加
                     
                     final_ppfd = get_ppfd()
                     print(f"Returned to brightest point: PPFD={final_ppfd:.2f}")
@@ -265,7 +263,7 @@ def explore(target_ppfd):
                     print("Already at brightest point")
                     break
         else:
-            no_improvement_count = 0  # 改善があればリセット
+            no_improvement_count = 0
         
         previous_max_ppfd = current_max_ppfd
     
@@ -276,10 +274,12 @@ def explore(target_ppfd):
 def stay(target_ppfd):
     stay_start_ppfd = get_ppfd()
     
+    print(f"=== Entering STAY phase ===")
     print(f"Staying at PPFD: {stay_start_ppfd:.2f}, Target: {target_ppfd:.2f}")
 
     while True:
         integrate_light()
+        print_status_if_needed()  # 追加
 
         elapsed = time.time() - start_time
         if elapsed >= TOTAL_SECONDS:
@@ -287,12 +287,10 @@ def stay(target_ppfd):
 
         current_ppfd = get_ppfd()
 
-        # 光減少判定（滞在開始時基準）
         if current_ppfd < stay_start_ppfd * PPFD_DROP_RATIO:
             print(f"Light decreased ({current_ppfd:.2f} < {stay_start_ppfd * PPFD_DROP_RATIO:.2f}) → re-explore")
             return "reexplore"
 
-        # 明るすぎ回避
         if current_ppfd > target_ppfd * (1 + BRIGHTNESS_TOLERANCE):
             print(f"Too bright ({current_ppfd:.2f} > {target_ppfd * (1 + BRIGHTNESS_TOLERANCE):.2f}) → adjust")
             rotate_left()
@@ -308,7 +306,7 @@ try:
     print(f"Target DLI: {TARGET_DLI} mol/m²/d")
     print(f"Target time: {ACCUMULATION_HOURS}h")
     
-    adjustment_ppfd = 0  # 不足分の補正値
+    adjustment_ppfd = 0
 
     while True:
         integrate_light()
@@ -324,7 +322,6 @@ try:
         remaining_umol = DLI_TARGET_UMOL - accumulated_umol
         required_ppfd = remaining_umol / max(1, remaining_time)
         
-        # 不足分の補正を加える
         required_ppfd += adjustment_ppfd
 
         print(f"\n--- New cycle ---")
@@ -336,14 +333,12 @@ try:
 
         integrate_light()
 
-        # ===== 不足補正 =====
         if reached_ppfd < required_ppfd * (1 - BRIGHTNESS_TOLERANCE):
             shortage = required_ppfd - reached_ppfd
             adjustment_ppfd += shortage
             print(f"Shortage detected: {shortage:.2f} µmol/m²/s")
             print(f"Adjustment for next cycle: +{adjustment_ppfd:.2f} µmol/m²/s")
         else:
-            # 目標達成できた場合は補正をリセット
             adjustment_ppfd = 0
 
         result = stay(required_ppfd)

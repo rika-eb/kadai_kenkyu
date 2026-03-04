@@ -46,12 +46,14 @@ def rotate_left():
     motor.setMotorModel(-TURN_POWER, TURN_POWER)
     time.sleep(TURN_STEP_TIME)
     stop()
+    time.sleep(0.3)
 
 
 def rotate_right():
     motor.setMotorModel(TURN_POWER, -TURN_POWER)
     time.sleep(TURN_STEP_TIME)
     stop()
+    time.sleep(0.3)
 
 
 def rotate_180():

@@ -68,7 +68,7 @@ def move_forward():
         motor.setMotorModel(FORWARD_POWER, FORWARD_POWER)
         time.sleep(FORWARD_TIME)
         stop()
-        time.sleep(0.3)
+        time.sleep(0.5)
         return True
     return False
 

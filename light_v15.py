@@ -43,28 +43,28 @@ best_global_avg = 0
 # ===== 基本動作 =====
 def stop():
     motor.setMotorModel(0, 0)
-    time.sleep(0.1)
+    time.sleep(0.3)
 
 
 def rotate_left():
     motor.setMotorModel(-TURN_POWER, TURN_POWER)
     time.sleep(TURN_STEP_TIME)
     stop()
-    time.sleep(0.1)
+    time.sleep(0.3)
 
 
 def rotate_right():
     motor.setMotorModel(TURN_POWER, -TURN_POWER)
     time.sleep(TURN_STEP_TIME)
     stop()
-    time.sleep(0.1)
+    time.sleep(0.3)
 
 
 def rotate_180():
     for _ in range(4):
         rotate_right()
     stop()
-    time.sleep(0.1)
+    time.sleep(0.3)
 
 
 def move_forward():
@@ -72,7 +72,7 @@ def move_forward():
         motor.setMotorModel(FORWARD_POWER, FORWARD_POWER)
         time.sleep(FORWARD_TIME)
         stop()
-        time.sleep(0.3)
+        time.sleep(1.0)
         return True
     return False
 

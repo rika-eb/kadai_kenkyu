@@ -157,13 +157,15 @@ def estimate_angle_from_lux(current_lux, measurements):
         angle2, lux2, dist2 = angle_lux_pairs[i + 1]
         
         if min(lux1, lux2) <= current_lux <= max(lux1, lux2):
-            if abs(lux2 - lux1) < 1.0:
+            # ★修正：ratioを先に計算してから分岐
+            if abs(lux2 - lux1) < 1.0:  # ほぼ同じ明るさ
                 estimated_angle = (angle1 + angle2) / 2.0
+                ratio = 0.5  # ★中間点として扱う
             else:
                 ratio = (current_lux - lux1) / (lux2 - lux1)
                 estimated_angle = angle1 + ratio * (angle2 - angle1)
             
-            # ★新規：推定角度の距離を補間
+            # ★推定角度の距離を補間（ratioは必ず定義済み）
             estimated_distance = dist1 + ratio * (dist2 - dist1)
             print(f"  Estimated angle: {estimated_angle * 45:.1f}° (step {estimated_angle:.2f}), Est. distance: {estimated_distance:.1f}cm")
             

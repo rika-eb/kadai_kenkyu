@@ -22,13 +22,14 @@ TOTAL_SECONDS = ACCUMULATION_HOURS * 3600
 BRIGHTNESS_TOLERANCE = 0.1
 PPFD_DROP_RATIO = 0.8
 DARK_RATIO = 0.7
-ANGLE_CORRECTION_THRESHOLD = 0.15  # 15%以上のLux乖離で角度補正
+ANGLE_CORRECTION_THRESHOLD = 0.15
 
 TURN_POWER = 3000
 TURN_STEP_TIME = 0.28
 FORWARD_POWER = 3000
 FORWARD_TIME = 0.4
 MIN_MOVE_DISTANCE = 20
+SAFE_DISTANCE_MARGIN = 30  # ★新規：安全距離（より遠くを確保）
 
 # ===== 30秒ごとの表示用 =====
 PRINT_INTERVAL = 30
@@ -90,6 +91,23 @@ def get_ppfd():
     return get_lux() * LUX_TO_PPFD
 
 
+def check_distance_safe(min_distance=MIN_MOVE_DISTANCE):
+    """
+    現在の距離が安全かチェック
+    複数回測定して平均を取ることで精度向上
+    """
+    distances = []
+    for _ in range(3):  # 3回測定
+        distances.append(ultra.get_distance())
+        time.sleep(0.1)
+    
+    avg_distance = sum(distances) / len(distances)
+    is_safe = avg_distance > min_distance
+    
+    print(f"  Distance check: {avg_distance:.1f}cm (min: {min_distance}cm) → {'SAFE' if is_safe else 'BLOCKED'}")
+    return is_safe, avg_distance
+
+
 # ===== 常時積算 =====
 def integrate_light():
     global accumulated_umol, last_integral_time
@@ -115,21 +133,15 @@ def print_status_if_needed():
         last_print_time = now
 
 
-# ===== 角度補正（Luxベース） =====
+# ===== 角度補正（Luxベース + 距離監視強化） =====
 def estimate_angle_from_lux(current_lux, measurements):
     """
     現在のLux値から、5点測定値を元に実際の角度を推定
-    
-    Args:
-        current_lux: 現在測定されたLux値
-        measurements: 5方向の測定結果リスト
-    
-    Returns:
-        推定角度ステップ（-2～2の範囲）、None if 推定不可
+    ★追加：距離も考慮して推定
     """
     # 測定値を角度ステップとLuxのペアに
-    angle_lux_pairs = [(m['angle_step'], m['lux']) for m in measurements]
-    angle_lux_pairs.sort(key=lambda x: x[0])  # 角度順にソート
+    angle_lux_pairs = [(m['angle_step'], m['lux'], m['distance']) for m in measurements]
+    angle_lux_pairs.sort(key=lambda x: x[0])
     
     # 現在値が測定範囲内かチェック
     min_lux = min(p[1] for p in angle_lux_pairs)
@@ -141,46 +153,57 @@ def estimate_angle_from_lux(current_lux, measurements):
     
     # 線形補間で角度を推定
     for i in range(len(angle_lux_pairs) - 1):
-        angle1, lux1 = angle_lux_pairs[i]
-        angle2, lux2 = angle_lux_pairs[i + 1]
+        angle1, lux1, dist1 = angle_lux_pairs[i]
+        angle2, lux2, dist2 = angle_lux_pairs[i + 1]
         
-        # current_luxがこの区間内にあるか
         if min(lux1, lux2) <= current_lux <= max(lux1, lux2):
-            # 線形補間
-            if abs(lux2 - lux1) < 1.0:  # ほぼ同じ明るさ
+            if abs(lux2 - lux1) < 1.0:
                 estimated_angle = (angle1 + angle2) / 2.0
             else:
                 ratio = (current_lux - lux1) / (lux2 - lux1)
                 estimated_angle = angle1 + ratio * (angle2 - angle1)
             
-            print(f"  Estimated angle: {estimated_angle * 45:.1f}° (step {estimated_angle:.2f})")
+            # ★新規：推定角度の距離を補間
+            estimated_distance = dist1 + ratio * (dist2 - dist1)
+            print(f"  Estimated angle: {estimated_angle * 45:.1f}° (step {estimated_angle:.2f}), Est. distance: {estimated_distance:.1f}cm")
+            
+            # ★安全チェック：推定地点が近すぎる場合は却下
+            if estimated_distance < SAFE_DISTANCE_MARGIN:
+                print(f"  ⚠ Estimated position too close to obstacle, rejecting correction")
+                return None
+            
             return estimated_angle
     
-    # 最も近い値を選択
     closest = min(angle_lux_pairs, key=lambda x: abs(x[1] - current_lux))
-    print(f"  Using closest match: angle step {closest[0]} (Lux {closest[1]:.2f})")
+    print(f"  Using closest match: angle step {closest[0]} (Lux {closest[1]:.2f}, Dist {closest[2]:.1f}cm)")
+    
+    # ★安全チェック
+    if closest[2] < SAFE_DISTANCE_MARGIN:
+        print(f"  ⚠ Closest match too close to obstacle")
+        return None
+    
     return closest[0]
 
 
 def correct_angle_if_needed(expected_lux, expected_angle_step, measurements):
     """
-    前進前に角度補正が必要かチェックし、必要なら補正する（Luxベース）
-    
-    Args:
-        expected_lux: 期待されるLux値
-        expected_angle_step: 期待される角度ステップ
-        measurements: 5方向の測定結果
-    
-    Returns:
-        (補正後の角度ステップ, 実際に補正したか)
+    前進前に角度補正が必要かチェックし、必要なら補正する
+    ★追加：補正後に距離を再確認
     """
     current_lux = get_lux()
     current_ppfd = get_ppfd()
-    current_distance = ultra.get_distance()
     
-    print(f"\n--- Angle correction check (Lux-based) ---")
+    # ★強化：距離の安全確認
+    is_safe, current_distance = check_distance_safe(MIN_MOVE_DISTANCE)
+    
+    print(f"\n--- Angle correction check (Lux-based + Distance) ---")
     print(f"  Expected: Lux={expected_lux:.2f}, Angle={expected_angle_step*45}°")
     print(f"  Current:  Lux={current_lux:.2f}, PPFD={current_ppfd:.2f}, Distance={current_distance:.1f}cm")
+    
+    # ★距離が危険な場合は補正しない
+    if not is_safe:
+        print(f"  ⚠ Current distance unsafe, skipping angle correction")
+        return expected_angle_step, False
     
     # Luxでの乖離度チェック
     deviation = abs(current_lux - expected_lux) / max(expected_lux, 1.0)
@@ -195,10 +218,10 @@ def correct_angle_if_needed(expected_lux, expected_angle_step, measurements):
     estimated_angle = estimate_angle_from_lux(current_lux, measurements)
     
     if estimated_angle is None:
-        print(f"  → Cannot estimate angle, using expected angle")
+        print(f"  → Cannot estimate angle safely, using expected angle")
         return expected_angle_step, False
     
-    # 補正角度を計算（整数ステップに丸める）
+    # 補正角度を計算
     correction_step = round(estimated_angle - expected_angle_step)
     
     if correction_step == 0:
@@ -209,19 +232,47 @@ def correct_angle_if_needed(expected_lux, expected_angle_step, measurements):
     
     # 補正回転を実行
     if correction_step > 0:
-        for _ in range(abs(correction_step)):
+        for i in range(abs(correction_step)):
             rotate_right()
+            # ★各回転後に距離チェック
+            temp_safe, temp_dist = check_distance_safe(SAFE_DISTANCE_MARGIN)
+            if not temp_safe:
+                print(f"  ⚠ Obstacle detected during correction, stopping rotation")
+                # 戻す
+                for j in range(i + 1):
+                    rotate_left()
+                return expected_angle_step, False
         print(f"  → Rotated right {abs(correction_step)*45}°")
     else:
-        for _ in range(abs(correction_step)):
+        for i in range(abs(correction_step)):
             rotate_left()
+            # ★各回転後に距離チェック
+            temp_safe, temp_dist = check_distance_safe(SAFE_DISTANCE_MARGIN)
+            if not temp_safe:
+                print(f"  ⚠ Obstacle detected during correction, stopping rotation")
+                # 戻す
+                for j in range(i + 1):
+                    rotate_right()
+                return expected_angle_step, False
         print(f"  → Rotated left {abs(correction_step)*45}°")
     
     # 補正後の確認
     corrected_lux = get_lux()
     corrected_ppfd = get_ppfd()
-    corrected_distance = ultra.get_distance()
-    print(f"  After correction: Lux={corrected_lux:.2f}, PPFD={corrected_ppfd:.2f}, Distance={corrected_distance:.1f}cm")
+    corrected_safe, corrected_distance = check_distance_safe(MIN_MOVE_DISTANCE)
+    
+    print(f"  After correction: Lux={corrected_lux:.2f}, PPFD={corrected_ppfd:.2f}, Distance={corrected_distance:.1f}cm, Safe={corrected_safe}")
+    
+    # ★補正後に距離が危険になった場合は元に戻す
+    if not corrected_safe:
+        print(f"  ⚠ Correction led to unsafe position, reverting")
+        if correction_step > 0:
+            for _ in range(abs(correction_step)):
+                rotate_left()
+        else:
+            for _ in range(abs(correction_step)):
+                rotate_right()
+        return expected_angle_step, False
     
     return expected_angle_step + correction_step, True
 
@@ -249,10 +300,10 @@ def rescan_for_brightest_movable():
             'lux': lux,
             'ppfd': ppfd,
             'distance': distance,
-            'can_move': distance > MIN_MOVE_DISTANCE
+            'can_move': distance > SAFE_DISTANCE_MARGIN  # ★安全マージンを使用
         })
         
-        print(f"  Re-scan Angle {angle_step*45}°: Lux={lux:.2f}, PPFD={ppfd:.2f}, Dist={distance:.1f}cm, Can move={distance > MIN_MOVE_DISTANCE}")
+        print(f"  Re-scan Angle {angle_step*45}°: Lux={lux:.2f}, PPFD={ppfd:.2f}, Dist={distance:.1f}cm, Can move={distance > SAFE_DISTANCE_MARGIN}")
         
         if i < len(ANGLE_STEPS) - 1:
             rotate_right()
@@ -266,7 +317,9 @@ def rescan_for_brightest_movable():
         print("  No movable direction found after re-scan → stay here")
         return None, measurements
     
-    brightest = max(movable, key=lambda m: m['ppfd'])
+    # ★距離も考慮して最良方向を選択
+    # PPFDが高く、かつ距離が遠い方向を優先
+    brightest = max(movable, key=lambda m: (m['ppfd'] * 0.7 + m['distance'] * 0.3))
     
     print(f"  Brightest movable direction: {brightest['angle_step']*45}° (Lux={brightest['lux']:.2f}, PPFD={brightest['ppfd']:.2f}, Dist={brightest['distance']:.1f}cm)")
     
@@ -285,7 +338,7 @@ def explore(target_ppfd):
     
     brightest_ppfd = 0
     move_history = []
-    
+        
     while True:
         integrate_light()
         print_status_if_needed()
@@ -309,7 +362,7 @@ def explore(target_ppfd):
                 'lux': lux,
                 'ppfd': ppfd,
                 'distance': distance,
-                'can_move': distance > MIN_MOVE_DISTANCE
+                'can_move': distance > SAFE_DISTANCE_MARGIN  # ★安全マージン使用
             })
             
             print(f"Angle {angle_step*45}°: Lux={lux:.2f}, PPFD={ppfd:.2f}, Dist={distance:.1f}cm")
@@ -347,7 +400,7 @@ def explore(target_ppfd):
         
         best = min(movable, key=lambda m: abs(m['ppfd'] - target_ppfd))
         
-        print(f"Best direction: {best['angle_step']*45}° (Lux={best['lux']:.2f}, PPFD={best['ppfd']:.2f})")
+        print(f"Best direction: {best['angle_step']*45}° (Lux={best['lux']:.2f}, PPFD={best['ppfd']:.2f}, Dist={best['distance']:.1f}cm)")
         
         rotation_angle = best['angle_step']
         
@@ -358,25 +411,25 @@ def explore(target_ppfd):
             for _ in range(-rotation_angle):
                 rotate_left()
         
-        # ★★★ 角度補正処理（Luxベース）★★★
+        # ★★★ 角度補正処理（距離監視強化版）★★★
         corrected_angle, was_corrected = correct_angle_if_needed(
-            best['lux'],  # ★ Luxを渡す
+            best['lux'],
             rotation_angle, 
             measurements
         )
         
-        # 補正があった場合は履歴にも反映
         if was_corrected:
             rotation_angle = corrected_angle
         
-        moved = move_forward()
+        # ★★★ 前進直前の最終安全確認 ★★★
+        print("\n--- Final safety check before moving ---")
+        final_safe, final_distance = check_distance_safe(MIN_MOVE_DISTANCE)
         
-        # ★★★ Cannot move forward時の処理 ★★★
-        if not moved:
-            current_distance = ultra.get_distance()
-            print(f"Cannot move forward (distance={current_distance:.1f}cm < {MIN_MOVE_DISTANCE}cm)")
+        if not final_safe:
+            print(f"⚠ Final safety check FAILED (distance={final_distance:.1f}cm)")
+            print("→ Attempting alternative direction search")
             
-            #            # 元の向きに戻す
+            # 元の向きに戻す
             if rotation_angle > 0:
                 for _ in range(rotation_angle):
                     rotate_left()
@@ -384,7 +437,7 @@ def explore(target_ppfd):
                 for _ in range(-rotation_angle):
                     rotate_right()
             
-            # 再スキャンして最も明るい移動可能な方向を探す
+            # 再スキャン
             brightest_movable, rescan_measurements = rescan_for_brightest_movable()
             
             if brightest_movable is None:
@@ -401,9 +454,9 @@ def explore(target_ppfd):
                 for _ in range(-rotation_angle):
                     rotate_left()
             
-            # 再スキャン後も角度補正を実行（Luxベース）
+            # 再スキャン後も角度補正を実行
             corrected_angle, was_corrected = correct_angle_if_needed(
-                brightest_movable['lux'],  # ★ Luxを渡す
+                brightest_movable['lux'],
                 rotation_angle,
                 rescan_measurements
             )
@@ -411,11 +464,11 @@ def explore(target_ppfd):
             if was_corrected:
                 rotation_angle = corrected_angle
             
-            # 前進を試みる
-            moved = move_forward()
+            # 再度最終安全確認
+            final_safe, final_distance = check_distance_safe(MIN_MOVE_DISTANCE)
             
-            if not moved:
-                print("Still cannot move forward after re-scan → stay here")
+            if not final_safe:
+                print("⚠ Still unsafe after re-scan → staying at current position")
                 # 元の向きに戻す
                 if rotation_angle > 0:
                     for _ in range(rotation_angle):
@@ -424,8 +477,23 @@ def explore(target_ppfd):
                     for _ in range(-rotation_angle):
                         rotate_right()
                 return get_ppfd()
-            
-            print(f"Successfully moved to alternative direction")
+        
+        # ★前進実行
+        print(f"✓ Safe to move forward (distance={final_distance:.1f}cm)")
+        moved = move_forward()
+        
+        if not moved:
+            print("⚠ Move forward failed despite safety check")
+            # 元の向きに戻す
+            if rotation_angle > 0:
+                for _ in range(rotation_angle):
+                    rotate_left()
+            elif rotation_angle < 0:
+                for _ in range(-rotation_angle):
+                    rotate_right()
+            return get_ppfd()
+        
+        print(f"✓ Successfully moved forward")
         
         integrate_light()
         print_status_if_needed()
@@ -549,6 +617,7 @@ try:
     print(f"Target time: {ACCUMULATION_HOURS}h ({TOTAL_SECONDS} seconds)")
     print(f"Lux to PPFD conversion: {LUX_TO_PPFD}")
     print(f"Angle correction threshold (Lux-based): {ANGLE_CORRECTION_THRESHOLD*100:.0f}%")
+    print(f"Safe distance margin: {SAFE_DISTANCE_MARGIN}cm")
     
     adjustment_ppfd = 0
 

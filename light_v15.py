@@ -41,6 +41,11 @@ best_global_avg = 0
 
 
 # ===== 基本動作 =====
+
+def pause(msg="確認してください"):
+    input(f"[PAUSE] {msg} → Enterで続行")
+
+
 def stop():
     motor.setMotorModel(0, 0)
     time.sleep(0.3)
@@ -188,6 +193,7 @@ def explore(target_ppfd):
         
         for _ in range(2):
             rotate_left()
+            pause("rotate_left")
         
         for i, angle_step in enumerate(ANGLE_STEPS):
             integrate_light()
@@ -210,9 +216,13 @@ def explore(target_ppfd):
             
             if i < len(ANGLE_STEPS) - 1:
                 rotate_right()
+                pause("rotate_right")
+
         
         for _ in range(2):
             rotate_left()
+            pause("rotate_left2")
+
         
         avg_lux = sum(m['lux'] for m in measurements) / len(measurements)
         
@@ -248,11 +258,17 @@ def explore(target_ppfd):
         if rotation_angle > 0:
             for _ in range(rotation_angle):
                 rotate_right()
+                pause("rotate_right_best")
+
         elif rotation_angle < 0:
             for _ in range(-rotation_angle):
                 rotate_left()
+                pause("rotate_left_best")
+
         
         moved = move_forward()
+        pause("move_forward")
+
         
         # ★★★ Cannot move forward時の処理を修正 ★★★
         if not moved:

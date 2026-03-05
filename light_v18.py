@@ -11,7 +11,7 @@ motor = tankMotor()
 ultra = Ultrasonic()
 
 # ===== DLI設定 =====
-TARGET_DLI = 10
+TARGET_DLI = 0.0684 #10
 ACCUMULATION_HOURS = 10
 LUX_TO_PPFD = 0.0281
 
@@ -27,9 +27,9 @@ ANGLE_CORRECTION_THRESHOLD = 0.15
 TURN_POWER = 3000
 TURN_STEP_TIME = 0.28
 FORWARD_POWER = 3000
-FORWARD_TIME = 0.2
+FORWARD_TIME = 0.3
 MIN_MOVE_DISTANCE = 20
-SAFE_DISTANCE_MARGIN = 30  # ★新規：安全距離（より遠くを確保）
+SAFE_DISTANCE_MARGIN = 25  # ★新規：安全距離（より遠くを確保）
 
 # ===== 30秒ごとの表示用 =====
 PRINT_INTERVAL = 30
@@ -613,13 +613,20 @@ def stay(target_ppfd):
 
 
 # ===== メイン =====
+# ===== メイン =====
 try:
+    # ★★★ Target PPFDの計算 ★★★
+    target_ppfd_constant = DLI_TARGET_UMOL / TOTAL_SECONDS
+    
     print("=== Light accumulation control started ===")
     print(f"Target DLI: {TARGET_DLI} mol/m²/d ({DLI_TARGET_UMOL} µmol/m²)")
     print(f"Target time: {ACCUMULATION_HOURS}h ({TOTAL_SECONDS} seconds)")
+    print(f"★ Target PPFD (constant): {target_ppfd_constant:.2f} µmol/m²/s")
+    print(f"  (If maintained constantly for {ACCUMULATION_HOURS}h, achieves {TARGET_DLI} mol/m²/d)")
     print(f"Lux to PPFD conversion: {LUX_TO_PPFD}")
     print(f"Angle correction threshold (Lux-based): {ANGLE_CORRECTION_THRESHOLD*100:.0f}%")
     print(f"Safe distance margin: {SAFE_DISTANCE_MARGIN}cm")
+    print()
     
     adjustment_ppfd = 0
 
@@ -632,6 +639,9 @@ try:
         if remaining_time <= 0:
             print("=== 10h complete ===")
             print(f"Accumulated: {accumulated_umol:.2f} µmol/m² ({accumulated_umol / 1_000_000:.3f} mol/m²)")
+            print(f"Target was: {DLI_TARGET_UMOL} µmol/m² ({TARGET_DLI} mol/m²/d)")
+            achievement_rate = (accumulated_umol / DLI_TARGET_UMOL) * 100
+            print(f"Achievement rate: {achievement_rate:.1f}%")
             break
 
         remaining_umol = DLI_TARGET_UMOL - accumulated_umol
@@ -643,7 +653,8 @@ try:
         print(f"Elapsed: {elapsed/3600:.2f}h, Remaining: {remaining_time/3600:.2f}h")
         print(f"Accumulated: {accumulated_umol:.2f} µmol/m² ({accumulated_umol / 1_000_000:.3f} mol/m²)")
         print(f"Remaining: {remaining_umol:.2f} µmol/m²")
-        print(f"Required PPFD: {required_ppfd:.2f} µmol/m²/s")
+        print(f"Required PPFD (dynamic): {required_ppfd:.2f} µmol/m²/s")
+        print(f"Target PPFD (constant): {target_ppfd_constant:.2f} µmol/m²/s")
 
         reached_ppfd = explore(required_ppfd)
 
@@ -662,12 +673,19 @@ try:
         if result == "finished":
             print("=== Target reached ===")
             print(f"Final accumulated: {accumulated_umol:.2f} µmol/m² ({accumulated_umol / 1_000_000:.3f} mol/m²)")
+            print(f"Target was: {DLI_TARGET_UMOL} µmol/m² ({TARGET_DLI} mol/m²/d)")
+            achievement_rate = (accumulated_umol / DLI_TARGET_UMOL) * 100
+            print(f"Achievement rate: {achievement_rate:.1f}%")
             break
 
 except KeyboardInterrupt:
     stop()
     print("\n=== Stopped manually ===")
     print(f"Accumulated: {accumulated_umol:.2f} µmol/m² ({accumulated_umol / 1_000_000:.3f} mol/m²)")
+    print(f"Target was: {DLI_TARGET_UMOL} µmol/m² ({TARGET_DLI} mol/m²/d)")
+    if DLI_TARGET_UMOL > 0:
+        achievement_rate = (accumulated_umol / DLI_TARGET_UMOL) * 100
+        print(f"Achievement rate: {achievement_rate:.1f}%")
 
 finally:
     stop()

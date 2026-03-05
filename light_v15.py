@@ -111,6 +111,62 @@ def print_status_if_needed():
         last_print_time = now
 
 
+# ===== 再スキャン（障害物回避用） =====
+def rescan_for_brightest_movable():
+    """
+    Cannot move forward時に呼ばれる
+    全方向を再スキャンして、障害物がなく最も明るい方向を探す
+    """
+    print("\n=== Re-scanning for brightest movable direction ===")
+    
+    ANGLE_STEPS = [-2, -1, 0, 1, 2]
+    measurements = []
+    
+    # 左端（-90度）へ移動
+    for _ in range(2):
+        rotate_left()
+    
+    # -90度から90度まで測定
+    for i, angle_step in enumerate(ANGLE_STEPS):
+        integrate_light()
+        
+        lux = get_lux()
+        ppfd = lux * LUX_TO_PPFD
+        distance = ultra.get_distance()
+        
+        measurements.append({
+            'index': i,
+            'angle_step': angle_step,
+            'lux': lux,
+            'ppfd': ppfd,
+            'distance': distance,
+            'can_move': distance > MIN_MOVE_DISTANCE
+        })
+        
+        print(f"  Re-scan Angle {angle_step*45}°: Lux={lux:.2f}, PPFD={ppfd:.2f}, Dist={distance:.1f}cm, Can move={distance > MIN_MOVE_DISTANCE}")
+        
+        if i < len(ANGLE_STEPS) - 1:
+            rotate_right()
+    
+    # 中央（0度）へ戻す
+    for _ in range(2):
+        rotate_left()
+    
+    # 移動可能な方向でフィルタリング
+    movable = [m for m in measurements if m['can_move']]
+    
+    if not movable:
+        print("  No movable direction found after re-scan → stay here")
+        return None
+    
+    # 最も明るい方向を選択
+    brightest = max(movable, key=lambda m: m['ppfd'])
+    
+    print(f"  Brightest movable direction: {brightest['angle_step']*45}° (PPFD={brightest['ppfd']:.2f}, Dist={brightest['distance']:.1f}cm)")
+    
+    return brightest
+
+
 # ===== 探索 =====
 def explore(target_ppfd):
     global best_global_avg
@@ -122,7 +178,7 @@ def explore(target_ppfd):
     MAX_NO_IMPROVEMENT = 3
     
     brightest_ppfd = 0
-    move_history = []  # ★ 各ステップを順番に記録
+    move_history = []
     
     while True:
         integrate_light()
@@ -180,14 +236,13 @@ def explore(target_ppfd):
         movable = [m for m in measurements if m['can_move']]
         
         if not movable:
-            print("No movable direction → stay here")
+            print("No movable direction in initial scan → stay here")
             return get_ppfd()
         
         best = min(movable, key=lambda m: abs(m['ppfd'] - target_ppfd))
         
         print(f"Best direction: {best['angle_step']*45}° (PPFD={best['ppfd']:.2f})")
         
-        # ★★★ 回転を記録（angle_stepで記録） ★★★
         rotation_angle = best['angle_step']  # -2, -1, 0, 1, 2
         
         if rotation_angle > 0:
@@ -199,10 +254,53 @@ def explore(target_ppfd):
         
         moved = move_forward()
         
+        # ★★★ Cannot move forward時の処理を修正 ★★★
         if not moved:
             current_distance = ultra.get_distance()
-            print("Cannot move forward (distance = {current_distance;;.1f}cm < {MIN_MOVE_DISTANCE}cm -> stay here")
-            return get_ppfd()
+            print(f"Cannot move forward (distance={current_distance:.1f}cm < {MIN_MOVE_DISTANCE}cm)")
+            
+            # 元の向きに戻す
+            if rotation_angle > 0:
+                for _ in range(rotation_angle):
+                    rotate_left()
+            elif rotation_angle < 0:
+                for _ in range(-rotation_angle):
+                    rotate_right()
+            
+            # 再スキャンして最も明るい移動可能な方向を探す
+            brightest_movable = rescan_for_brightest_movable()
+            
+            if brightest_movable is None:
+                # どの方向にも進めない場合は現在地に留まる
+                print("No alternative direction available → stay here")
+                return get_ppfd()
+            
+            # 最も明るい方向へ回転
+            rotation_angle = brightest_movable['angle_step']
+            
+            if rotation_angle > 0:
+                for _ in range(rotation_angle):
+                    rotate_right()
+            elif rotation_angle < 0:
+                for _ in range(-rotation_angle):
+                    rotate_left()
+            
+            # 前進を試みる
+            moved = move_forward()
+            
+            if not moved:
+                # それでも進めない場合は現在地に留まる
+                print("Still cannot move forward after re-scan → stay here")
+                # 元の向きに戻す
+                if rotation_angle > 0:
+                    for _ in range(rotation_angle):
+                        rotate_left()
+                elif rotation_angle < 0:
+                    for _ in range(-rotation_angle):
+                        rotate_right()
+                return get_ppfd()
+            
+            print(f"Successfully moved to alternative direction")
         
         integrate_light()
         print_status_if_needed()
@@ -213,12 +311,11 @@ def explore(target_ppfd):
         
         if reached_ppfd > brightest_ppfd:
             brightest_ppfd = reached_ppfd
-            move_history = []  # 最良地点更新時は履歴をクリア
+            move_history = []
             print(f"New brightest point: {brightest_ppfd:.2f}")
         else:
-            # ★★★ 修正: 回転角度と前進をセットで記録 ★★★
             move_history.append({
-                'rotation_angle': rotation_angle,  # -2〜2 (45度単位)
+                'rotation_angle': rotation_angle,
                 'forward': True
             })
         
@@ -240,7 +337,6 @@ def explore(target_ppfd):
                     print(f"Move history length: {len(move_history)} steps")
                     print("Return path:")
                     
-                    # Step 1: 180度回転
                     print("  Step 1: Rotate 180°")
                     rotate_180()
                     integrate_light()
@@ -248,18 +344,15 @@ def explore(target_ppfd):
                     
                     step_num = 2
                     
-                    # ★★★ 修正: 履歴を逆順にたどる ★★★
                     for i, move in enumerate(reversed(move_history)):
-                        # まず前進（180度回転後なので、前進で戻る）
                         print(f"  Step {step_num}: Move forward")
                         move_forward()
                         integrate_light()
                         print_status_if_needed()
                         step_num += 1
                         
-                        # 次に回転（180度回転後なので、角度の符号を反転）
                         rotation_angle = move['rotation_angle']
-                        reversed_angle = -rotation_angle  # 符号を反転
+                        reversed_angle = -rotation_angle
                         
                         if reversed_angle != 0:
                             angle_degrees = reversed_angle * 45
@@ -273,7 +366,6 @@ def explore(target_ppfd):
                                     rotate_left()
                             step_num += 1
                     
-                    # 最後に180度回転して元の向きに戻す
                     print(f"  Step {step_num}: Rotate 180° (restore original orientation)")
                     rotate_180()
                     integrate_light()
@@ -312,7 +404,6 @@ def stay(target_ppfd):
             return "finished"
 
         current_ppfd = get_ppfd()
-
         if current_ppfd < stay_start_ppfd * PPFD_DROP_RATIO:
             print(f"Light decreased ({current_ppfd:.2f} < {stay_start_ppfd * PPFD_DROP_RATIO:.2f}) → re-explore")
             return "reexplore"
@@ -341,16 +432,6 @@ try:
         elapsed = time.time() - start_time
         remaining_time = TOTAL_SECONDS - elapsed
 
-        if remaining_time <= 0:
-            print("=== 10h complete ===")
-            print(f"Accumulated: {accumulated_umol:.2f} µmol/m² ({accumulated_umol / 1_000_000:.3f} mol/m²)")
-            break
-
-        remaining_umol = DLI_TARGET_UMOL - accumulated_umol
-        required_ppfd = remaining_umol / max(1, remaining_time)
-        #required_ppfd = remaining_umol / max(1, remaining_time
-
-        
         if remaining_time <= 0:
             print("=== 10h complete ===")
             print(f"Accumulated: {accumulated_umol:.2f} µmol/m² ({accumulated_umol / 1_000_000:.3f} mol/m²)")
@@ -389,3 +470,7 @@ try:
 except KeyboardInterrupt:
     stop()
     print("\n=== Stopped manually ===")
+    print(f"Accumulated: {accumulated_umol:.2f} µmol/m² ({accumulated_umol / 1_000_000:.3f} mol/m²)")
+
+finally:
+    stop()

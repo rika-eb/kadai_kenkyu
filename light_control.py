@@ -258,9 +258,23 @@ def escape_shadow_area():
     integrate_light()
 
     escape_success = False
-    for attempt in range(3):
+    for attempt in range(2):
         print(f"  Step {attempt + 2}: Forward attempt {attempt + 1}/3")
+        
+        # ★ 前進前に障害物距離を確認
+        is_safe, dist = check_distance_safe(MIN_MOVE_DISTANCE)
+        if not is_safe:
+            print(f"    ✗ Obstacle detected ({dist:.1f}cm), "
+                  f"rotating right to find alternative")
+            rotate_right()
+            integrate_light()
 
+            # 別方向も確認
+            is_safe, dist = check_distance_safe(MIN_MOVE_DISTANCE)
+            if not is_safe:
+                print(f"    ✗ Alternative also blocked ({dist:.1f}cm), skipping")
+                continue
+            
         if move_forward():
             integrate_light()
             current_lux = get_lux()

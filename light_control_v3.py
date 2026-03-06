@@ -793,6 +793,25 @@ def explore(target_ppfd):
             elif rotation_angle < 0:
                 for _ in range(-rotation_angle):
                     rotate_left()
+                    
+            post_rotate_lux = get_lux()
+            post_rotate_ppfd = post_rotate_lux * LUX_TO_PPFD
+            print(f"\n--- Post-rotation check ---")
+            print(f"  PPFD after rotation: {post_rotate_ppfd:.2f}, "
+              f"Target: {target_ppfd:.2f} "
+              f"(tolerance range: "
+              f"{target_ppfd * (1 - BRIGHTNESS_TOLERANCE):.2f}"
+              f" ~ {target_ppfd * (1 + BRIGHTNESS_TOLERANCE):.2f})")
+
+            if post_rotate_ppfd >= target_ppfd * (1 - BRIGHTNESS_TOLERANCE):
+                print(f"  ✓ Already within target range at this angle "
+                  f"→ no forward movement needed, entering stay")
+                if post_rotate_ppfd > _brightest_ppfd[0]:
+                    _brightest_ppfd[0] = post_rotate_ppfd
+                    _move_history[0] = []
+                    print(f"  New brightest point: {_brightest_ppfd[0]:.2f}")
+                update_global_brightness(post_rotate_lux)
+                break
 
             corrected_angle, was_corrected = correct_angle_if_needed(
                 brightest_movable['lux'], rotation_angle, rescan_measurements

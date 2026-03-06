@@ -33,7 +33,7 @@ MIN_MOVE_DISTANCE = 20
 SAFE_DISTANCE_MARGIN = 25
 
 # ===== 影エリア判定パラメータ =====
-STARTUP_DARK_THRESHOLD = 50     # global_max_luxが不十分と判断する閾値
+STARTUP_DARK_THRESHOLD = 8 #50     # global_max_luxが不十分と判断する閾値
 RELATIVE_SHADOW_RATIO = 0.4     # スキャン内最大値の40%以下なら影と判断
 MAX_UNIFORM_DARK = 3            # 一様暗スキャン連続N回で強制脱出
 

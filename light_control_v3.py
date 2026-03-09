@@ -4,6 +4,35 @@ import adafruit_tsl2591
 from motor import tankMotor
 from ultrasonic import Ultrasonic
 
+
+import sys
+import os
+from datetime import datetime
+
+# ===== ログ設定 =====
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+log_filename = os.path.join(LOG_DIR, f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+
+class Tee:
+    """標準出力とファイルの両方に書き出すクラス"""
+    def __init__(self, *files):
+        self.files = files
+
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+            f.flush()  # すぐに書き込む（クラッシュ時のデータ損失防止）
+
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
+log_file = open(log_filename, 'w', encoding='utf-8')
+sys.stdout = Tee(sys.stdout, log_file)
+
+print(f"=== Log started: {log_filename} ===")
+
 # ===== センサ =====
 i2c = board.I2C()
 light = adafruit_tsl2591.TSL2591(i2c)
@@ -11,7 +40,7 @@ motor = tankMotor()
 ultra = Ultrasonic()
 
 # ===== DLI設定 =====
-TARGET_DLI = 0.0684
+TARGET_DLI = 0.1224 #0.0684
 ACCUMULATION_HOURS = 10
 LUX_TO_PPFD = 0.0281
 
@@ -1080,3 +1109,5 @@ except KeyboardInterrupt:
 
 finally:
     stop()
+    log_file.close()        # ← 追加
+    sys.stdout = sys.__stdout__

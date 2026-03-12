@@ -1111,3 +1111,4 @@ finally:
     stop()
     log_file.close()        # ← 追加
     sys.stdout = sys.__stdout__
+

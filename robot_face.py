@@ -7,10 +7,10 @@ from pdf2image import convert_from_path
 
 # ===== 設定 =====
 PDF_PATHS = [
-    os.path.expanduser("~/kadai_kenkyu/face1.pdf"),  # 通常顔
-    os.path.expanduser("~/kadai_kenkyu/face2.pdf"),  # 笑顔
-    os.path.expanduser("~/kadai_kenkyu/face3.pdf"),  # 怒り顔
-    os.path.expanduser("~/kadai_kenkyu/face4.pdf"),  # 眠り顔
+    os.path.expanduser("~/kadai_kenkyu/robo_display_img.pdf"),  # 通常顔
+    os.path.expanduser("~/kadai_kenkyu/robo_display_img.pdf"),  # 笑顔
+    os.path.expanduser("~/kadai_kenkyu/robo_display_img.pdf"),  # 怒り顔
+    os.path.expanduser("~/kadai_kenkyu/robo_display_img.pdf"),  # 眠り顔
 ]
 PNG_DIR = os.path.expanduser("~/kadai_kenkyu/png_cache/")  # 変換後PNGの保存先
 INTERVAL = 3  # 切り替え間隔（秒）

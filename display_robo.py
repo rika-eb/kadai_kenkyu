@@ -10,10 +10,10 @@ import sys
 #     "/home/pi/faces/face4.png",  # 眠り顔
 # ]
 IMAGE_PATHS = [
-    "~/kadai_kenkyu/robo_display_img.pdf",  # 通常顔
-    "~/kadai_kenkyu/robo_display_img.pdf",  # 笑顔
-    "~/kadai_kenkyu/robo_display_img.pdf",  # 怒り顔
-    "~/kadai_kenkyu/robo_display_img.pdf",  # 眠り顔
+    "home/rika0307/kadai_kenkyu/robo_display_img.pdf",  # 通常顔
+    "home/rika0307/kadai_kenkyu/robo_display_img.pdf",  # 笑顔
+    "home/rika0307/kadai_kenkyu/robo_display_img.pdf",  # 怒り顔
+    "home/rika0307/kadai_kenkyu/robo_display_img.pdf",  # 眠り顔
 ]
 INTERVAL = 3  # 切り替え間隔（秒）
 

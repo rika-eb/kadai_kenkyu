@@ -3,11 +3,17 @@ import time
 import sys
 
 # ===== 設定 =====
+# IMAGE_PATHS = [
+#     "/home/pi/faces/face1.png",  # 通常顔
+#     "/home/pi/faces/face2.png",  # 笑顔
+#     "/home/pi/faces/face3.png",  # 怒り顔
+#     "/home/pi/faces/face4.png",  # 眠り顔
+# ]
 IMAGE_PATHS = [
-    "/home/pi/faces/face1.png",  # 通常顔
-    "/home/pi/faces/face2.png",  # 笑顔
-    "/home/pi/faces/face3.png",  # 怒り顔
-    "/home/pi/faces/face4.png",  # 眠り顔
+    "~/kadai_kenkyu/robo_display_img.pdf",  # 通常顔
+    "~/kadai_kenkyu/robo_display_img.pdf",  # 笑顔
+    "~/kadai_kenkyu/robo_display_img.pdf",  # 怒り顔
+    "~/kadai_kenkyu/robo_display_img.pdf",  # 眠り顔
 ]
 INTERVAL = 3  # 切り替え間隔（秒）
 

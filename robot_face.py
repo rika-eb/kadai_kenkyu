@@ -48,6 +48,7 @@ def load_images(png_paths):
     images = []
     for path in png_paths:
         img = pygame.image.load(path).convert()
+        img = pygame.transform.rotate(img, 90)
         img = pygame.transform.scale(img, (screen_w, screen_h))
         images.append(img)
     return images

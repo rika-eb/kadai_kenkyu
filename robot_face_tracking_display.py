@@ -28,8 +28,8 @@ FACE_HAPPY  = 1
 TARGET_DISTANCE    = 30   # 目標距離 (cm)
 TOLERANCE_DISTANCE = 5    # 距離の許容誤差 (cm)
 TOLERANCE_ANGLE    = 50   # 横方向の許容ずれ (px)
-APPROACH_SPEED     = 800
-TURN_SPEED         = 1000
+APPROACH_SPEED     = 2000
+TURN_SPEED         = 2000
 FACE_LOST_TIMEOUT  = 2.0  # 顔消失後に表情を戻すまでの秒数
 
 # ===================================================
@@ -145,7 +145,7 @@ class FaceTrackingRobot:
         elif action == "backward":   self.motor.setMotorModel(-APPROACH_SPEED, -APPROACH_SPEED)
         elif action == "turn_left":  self.motor.setMotorModel(-TURN_SPEED,      TURN_SPEED)
         elif action == "turn_right": self.motor.setMotorModel( TURN_SPEED,     -TURN_SPEED)
-        elif action == "search":     self.motor.setMotorModel(-TURN_SPEED // 2, TURN_SPEED // 2)
+        elif action == "search":     self.motor.setMotorModel(-TURN_SPEED , TURN_SPEED)
         else:                        self.motor.setMotorModel(0, 0)   # stop
 
     # --------------------------------------------------

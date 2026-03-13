@@ -38,8 +38,12 @@ FACE_LOST_TIMEOUT  = 2.0  # 顔消失後に表情を戻すまでの秒数
 def convert_pdfs_to_png(pdf_paths, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     png_paths = []
-    for i, pdf_path in enumerate(pdf_paths):
-        png_path = os.path.join(out_dir, f"face_{i+1}.png")
+    for pdf_path in pdf_paths:
+        # PDFのファイル名（拡張子なし）をそのままPNG名に使う
+        # 例: happy.pdf → png_cache/happy.png
+        base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+        png_path  = os.path.join(out_dir, f"{base_name}.png")
+
         if os.path.exists(png_path):
             print(f"スキップ（変換済み）: {png_path}")
         else:
@@ -47,6 +51,7 @@ def convert_pdfs_to_png(pdf_paths, out_dir):
             pages = convert_from_path(pdf_path, dpi=150)
             pages[0].save(png_path, "PNG")
             print(f"変換完了: {png_path}")
+
         png_paths.append(png_path)
     return png_paths
 
